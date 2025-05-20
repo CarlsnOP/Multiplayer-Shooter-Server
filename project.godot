@@ -18,3 +18,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 Server="*res://server/server.tscn"
+
+[global_group]
+
+SpawnPoints=""
