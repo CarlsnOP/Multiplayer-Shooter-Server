@@ -22,3 +22,9 @@ Server="*res://server/server.tscn"
 [global_group]
 
 SpawnPoints=""
+
+[layer_names]
+
+3d_physics/layer_1="enviroment"
+3d_physics/layer_2="player"
+3d_physics/layer_3="hitbox"

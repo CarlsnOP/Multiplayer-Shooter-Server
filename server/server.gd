@@ -44,7 +44,7 @@ func remove_client_from_lobby(client_id: int) -> void:
 		maybe_lobby.remove_client(client_id)
 		lobby_clients_updated(maybe_lobby)
 		
-		if maybe_lobby.clients.is_empty():
+		if maybe_lobby.client_data.keys().is_empty():
 			lobbies.erase(maybe_lobby)
 			maybe_lobby.queue_free()
 			update_lobby_spots()
@@ -70,23 +70,23 @@ func update_lobby_spots() -> void:
 
 func get_lobby_from_client_id(id: int) -> Lobby:
 	for lobby in lobbies:
-		if lobby.clients.has(id):
+		if lobby.client_data.keys().has(id):
 			return lobby
 			
 	return null
 
 #c_ means client calls this fucntion
 @rpc("any_peer", "call_remote", "reliable")
-func c_try_connect_client_to_lobby() -> void:
+func c_try_connect_client_to_lobby(player_name: String) -> void:
 	var client_id := multiplayer.get_remote_sender_id()
 	var maybe_lobby := get_non_full_lobby()
 	
 	if maybe_lobby:
-		maybe_lobby.add_client(client_id)
+		maybe_lobby.add_client(client_id, player_name)
 		idle_clients.erase(client_id)
 		lobby_clients_updated(maybe_lobby)
 		
-		if maybe_lobby.clients.size() >= MAX_PLAYERS_PER_LOBBY:
+		if maybe_lobby.client_data.keys().size() >= MAX_PLAYERS_PER_LOBBY:
 			lock_lobby(maybe_lobby)
 		
 		print("Client %d connected to lobby %s" %[client_id, maybe_lobby.name])
@@ -99,7 +99,7 @@ func lock_lobby(lobby: Lobby) -> void:
 	create_lobby_on_clients(lobby)
 
 func create_lobby_on_clients(lobby: Lobby) -> void:
-	for lobby_client_id in lobby.clients:
+	for lobby_client_id in lobby.client_data.keys():
 		s_create_lobby_on_clients.rpc_id(lobby_client_id, lobby.name)
 @rpc("authority", "call_remote", "reliable")
 func s_create_lobby_on_clients(lobby_name: String) -> void:
@@ -110,7 +110,7 @@ func get_non_full_lobby() -> Lobby:
 		if lobby.status != Lobby.IDLE:
 			continue
 			
-		if lobby.clients.size() < MAX_PLAYERS_PER_LOBBY:
+		if lobby.client_data.keys().size() < MAX_PLAYERS_PER_LOBBY:
 			return lobby
 			
 	if lobbies.size() < MAX_LOBBIES:
@@ -125,8 +125,8 @@ func get_non_full_lobby() -> Lobby:
 	return null
 
 func lobby_clients_updated(lobby: Lobby) -> void:
-	for client_id in lobby.clients:
-		s_lobby_clients_updated.rpc_id(client_id, lobby.clients.size(), MAX_PLAYERS_PER_LOBBY)
+	for client_id in lobby.client_data.keys():
+		s_lobby_clients_updated.rpc_id(client_id, lobby.client_data.keys().size(), MAX_PLAYERS_PER_LOBBY)
 @rpc("authority", "call_remote", "reliable")
 func s_lobby_clients_updated(connected_clients: int, max_clients: int) -> void:
 	pass
@@ -139,3 +139,16 @@ func s_client_cant_connect_to_lobby() -> void:
 func c_cancel_quickplay_search() -> void:
 	var client_id := multiplayer.get_remote_sender_id()
 	remove_client_from_lobby(client_id)
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func c_get_server_clock_time(client_clock_time: int) -> void:
+	s_return_server_clock_time.rpc_id(
+		multiplayer.get_remote_sender_id(),
+		floori(Time.get_unix_time_from_system() * 1000),
+		client_clock_time
+	)
+
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func s_return_server_clock_time(server_clock_time: int, old_client_clock_time: int) -> void:
+	pass
