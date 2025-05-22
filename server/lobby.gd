@@ -3,6 +3,7 @@ class_name Lobby
 
 
 const WORLD_STATE_SEND_FRAME := 3
+const WORLD_STATES_TO_REMEMBER := 60
 
 
 enum {
@@ -15,7 +16,9 @@ enum {
 var status := IDLE
 var client_data := {}
 var ready_clients : Array[int] = []
-var world_state := {"ps": {}, "t": 0} #ps = player state, t = time
+var current_world_state := {"ps": {}, "t": 0} #ps = player state, t = time
+var server_players := {}
+var previous_world_states: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -24,11 +27,22 @@ func _ready() -> void:
 func _physics_process(delta) -> void:
 	if Engine.get_physics_frames() % WORLD_STATE_SEND_FRAME == 0:
 		
-		world_state.t = floori(Time.get_unix_time_from_system() * 1000)
+		current_world_state.t = floori(Time.get_unix_time_from_system() * 1000)
 		
 		for client_id in client_data.keys():
-			s_send_world_state.rpc_id(client_id, world_state)
-
+			s_send_world_state.rpc_id(client_id, current_world_state)
+	
+	while previous_world_states.size() >= WORLD_STATES_TO_REMEMBER:
+		previous_world_states.pop_back()
+	
+	for client_id in server_players.keys():
+		if not current_world_state.ps.has(client_id):
+			continue
+		
+		current_world_state.ps[client_id].anim_pos = server_players.get(client_id).real.animation_player.current_animation_position
+	
+	previous_world_states.push_front(current_world_state.duplicate(true))
+	
 @rpc("authority", "call_remote", "unreliable_ordered")
 func s_send_world_state(new_world_state: Dictionary) -> void:
 	pass
@@ -121,11 +135,8 @@ func spawn_players() -> void:
 			team = 1
 			spawn_tform = red_spawn_points[0].transform
 			red_spawn_points.pop_front()
-			
-		var player: CharacterBody3D = preload("res://player/player_server.tscn").instantiate()
-		player.name = str(ready_clients[i])
-		player.global_transform = spawn_tform
-		add_child(player, true)
+		
+		spawn_server_player(ready_clients[i], spawn_tform)
 		
 		for ready_client_id in ready_clients:
 			s_spawn_player.rpc_id(
@@ -137,6 +148,18 @@ func spawn_players() -> void:
 			client_data.get(ready_clients[i]).weapon_id,
 			)
 
+func spawn_server_player(client_id: int, spawn_tform: Transform3D) -> void:
+	var server_player_real := preload("res://player/player_server_real.tscn").instantiate()
+	var server_player_dummy := preload("res://player/player_server_dummy.tscn").instantiate()
+	server_player_real.name = str(client_id)
+	server_player_dummy.name = str(client_id) + "_dummy"
+	server_player_real.global_transform = spawn_tform
+	add_child(server_player_real, true)
+	add_child(server_player_dummy, true)
+	server_players[client_id] = {}
+	server_players[client_id].real = server_player_real
+	server_players[client_id].dummy = server_player_dummy
+	
 @rpc("authority", "call_remote", "reliable")
 func s_spawn_player(client_id: int, spawn_tfrom: Transform3D, team: int, player_name: String, weapon_id: int) -> void:
 	pass
@@ -147,7 +170,7 @@ func s_start_match() -> void:
 	
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func c_send_player_state(player_state: Dictionary) -> void:
-	world_state.ps[multiplayer.get_remote_sender_id()] = player_state
+	current_world_state.ps[multiplayer.get_remote_sender_id()] = player_state
 
 @rpc("authority", "call_remote", "reliable")
 func s_start_weapon_selection() -> void:
@@ -184,6 +207,70 @@ func c_shot_fired(time_stamp: int, player_data: Dictionary) -> void:
 	for client_id in client_data.keys():
 		if client_id != sender_id:
 			s_play_shoot_fx.rpc_id(client_id, sender_id)
+	
+	if sender_id in server_players.keys():
+		calculate_shot_results(sender_id, time_stamp, player_data)
+
+func calculate_shot_results(shooter_id: int, time_stamp: int, player_data: Dictionary) -> void:
+	var target_time := time_stamp - 100 #100ms buffering delay
+	var target_world_state: Dictionary
+	
+	for world_state in previous_world_states:
+		if world_state.t < target_time:
+			target_world_state = world_state
+			break
+	
+	if target_world_state == null:
+		return
+		
+	for client_id in target_world_state.ps.keys():
+		if not client_id in server_players.keys():
+			continue
+			
+		if not client_id in previous_world_states[0].ps.keys():
+			continue
+	
+		if client_id == shooter_id:
+			server_players.get(client_id).dummy.update_body_geometry(player_data) 
+			continue
+		
+		if not target_world_state.ps.get(client_id).is_empty():
+			server_players.get(client_id).dummy.update_body_geometry(target_world_state.ps.get(client_id)) 
+	
+	await get_tree().physics_frame
+	
+	if not shooter_id in server_players.keys():
+		return
+	
+	var space_state = get_world_3d().direct_space_state
+	var shooter_dummy: ServerPlayerDummy = server_players.get(shooter_id).dummy
+	var ray_params := PhysicsRayQueryParameters3D.new()
+	var shoot_tform := shooter_dummy.head.global_transform
+	
+	ray_params.from = shooter_dummy.head.global_position
+	ray_params.to = ray_params.from + shoot_tform.basis.z * -100 #100 is the range
+	ray_params.collide_with_areas = true
+	ray_params.exclude = shooter_dummy.hitboxes
+	ray_params.collision_mask = 16 + 4 #16 = enviroment_exact, 4 = hitboxes
+	
+	var result := space_state.intersect_ray(ray_params)
+	
+	if result.is_empty():
+		return
+	
+	if result.collider is HitBox:
+		print(result.collider.player.name + " got hit")
+		spawn_bullet_hit_fx(result.position - global_position, result.normal, 1)
+	
+	else:
+		spawn_bullet_hit_fx(result.position - global_position, result.normal, 0)
+
+func spawn_bullet_hit_fx(pos: Vector3, normal: Vector3, type: int) -> void:
+	for client_id in client_data.keys():
+		s_spawn_bullet_hit_fx.rpc_id(client_id, pos, normal, type)
+@rpc("authority", "call_remote", "unreliable")
+func s_spawn_bullet_hit_fx(pos: Vector3, normal: Vector3, type: int) -> void:
+	pass
 
 @rpc("authority", "call_remote", "unreliable")
 func s_play_shoot_fx(target_client_id: int) -> void:

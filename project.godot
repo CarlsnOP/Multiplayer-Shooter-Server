@@ -19,6 +19,10 @@ config/icon="res://icon.svg"
 
 Server="*res://server/server.tscn"
 
+[debug]
+
+gdscript/warnings/unused_parameter=0
+
 [global_group]
 
 SpawnPoints=""
@@ -28,3 +32,5 @@ SpawnPoints=""
 3d_physics/layer_1="enviroment"
 3d_physics/layer_2="player"
 3d_physics/layer_3="hitbox"
+3d_physics/layer_4="player_dummy"
+3d_physics/layer_5="enviroment_exact"
