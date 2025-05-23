@@ -18,6 +18,7 @@ const ARM_Y_ROT_SCALER: PackedFloat32Array = [-0.39, -1.25]
 
 
 var hitboxes: Array[RID] = []
+var id: int
 
 
 func _ready() -> void:

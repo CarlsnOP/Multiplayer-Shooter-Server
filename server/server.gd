@@ -2,7 +2,7 @@ extends Node
 
 const PORT := 7777
 const MAX_CLIENTS := 64
-const MAX_LOBBIES := 1
+const MAX_LOBBIES := 5
 const MAX_PLAYERS_PER_LOBBY := 2
 const DISTANCE_BETWEEN_LOBBIES := 100
 
