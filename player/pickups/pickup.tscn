@@ -1,0 +1,24 @@
+[gd_scene load_steps=3 format=3 uid="uid://4r83orjxp3hi"]
+
+[ext_resource type="Script" uid="uid://c3rhy28nafdqg" path="res://player/pickups/pickup.gd" id="1_xcju5"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_ri555"]
+radius = 0.4
+
+[node name="Pickup" type="Node3D"]
+script = ExtResource("1_xcju5")
+
+[node name="Area3D" type="Area3D" parent="."]
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Area3D"]
+shape = SubResource("SphereShape3D_ri555")
+
+[node name="CooldownTimer" type="Timer" parent="."]
+unique_name_in_owner = true
+one_shot = true
+
+[connection signal="body_entered" from="Area3D" to="." method="_on_area_3d_body_entered"]
+[connection signal="timeout" from="CooldownTimer" to="." method="_on_cooldown_timer_timeout"]

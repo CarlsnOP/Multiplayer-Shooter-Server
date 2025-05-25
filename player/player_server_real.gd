@@ -18,13 +18,13 @@ func set_anim(anim_name: String) -> void:
 	
 	animation_player.play(anim_name, ANIM_BLEND_TIME)
 
-func change_health(amount: int) -> void:
+func change_health(amount: int, maybe_damage_dealer: int = 0) -> void:
 	current_health = clampi(current_health + amount, 0, MAX_HEALTH)
 	
 	if current_health <= 0:
-		die()
+		die(maybe_damage_dealer)
 	
 	lobby.update_health(name.to_int(), current_health, MAX_HEALTH, amount)
 
-func die() -> void:
-	print(name, " died")
+func die(killer_id: int) -> void:
+	lobby.player_died(name.to_int(), killer_id)

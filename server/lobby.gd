@@ -4,6 +4,7 @@ class_name Lobby
 
 const WORLD_STATE_SEND_FRAME := 3
 const WORLD_STATES_TO_REMEMBER := 60
+const DEATH_COOLDOWN_LENGTH := 5
 
 
 enum {
@@ -19,6 +20,8 @@ var ready_clients : Array[int] = []
 var current_world_state := {"ps": {}, "t": 0} #ps = player state, t = time
 var server_players := {}
 var previous_world_states: Array[Dictionary] = []
+var pickups: Array[Pickup] = []
+var spawn_points: Array[Node3D] = []
 
 
 func _ready() -> void:
@@ -48,7 +51,7 @@ func s_send_world_state(new_world_state: Dictionary) -> void:
 	pass
 
 func add_client(id: int, player_name: String) -> void:
-	client_data[id] = {"display_name": player_name}
+	client_data[id] = {"display_name": player_name, "kills": 0, "deaths": 0}
 
 func remove_client(id: int) -> void:
 	client_data.erase(id)
@@ -74,6 +77,18 @@ func start_loading_map() -> void:
 	map.name = "Map"
 	add_child(map, true)
 	
+	var spawn_point_holder = map.get_node("SpawnPoints")
+	if spawn_point_holder != null:
+		for spawn_point in spawn_point_holder.get_children():
+			spawn_points.append(spawn_point)
+				
+	var pickup_holder = map.get_node("Pickups")
+	if pickup_holder != null:
+		for maybe_pickup in pickup_holder.get_children():
+			if maybe_pickup is Pickup:
+				maybe_pickup.lobby = self
+				pickups.append(maybe_pickup)
+	
 	for ready_client in ready_clients:
 		s_start_loading_map.rpc_id(ready_client)
 @rpc("authority", "call_remote", "reliable")
@@ -88,6 +103,9 @@ func c_map_ready() -> void:
 		return
 	
 	ready_clients.append(client_id)
+	
+	for pickup in pickups:
+		s_spawn_pickup.rpc_id(client_id, pickup.name, pickup.pickup_type, pickup.position)
 	
 	for maybe_ready_client in client_data.keys():
 		if not maybe_ready_client in ready_clients:
@@ -108,8 +126,11 @@ func c_map_ready() -> void:
 	#ready_clients.clear()
 	#set_physics_process(true)
 
+@rpc("authority", "call_remote", "reliable")
+func s_spawn_pickup(pickup_name: String, pickup_type: int, pos: Vector3) -> void:
+	pass
+
 func spawn_players() -> void:
-	var spawn_points := get_tree().get_nodes_in_group("SpawnPoints")
 	var blue_spawn_points: Array[Node3D] = []
 	var red_spawn_points: Array[Node3D] = []
 	
@@ -146,6 +167,7 @@ func spawn_players() -> void:
 			team,
 			client_data.get(ready_clients[i]).display_name,
 			client_data.get(ready_clients[i]).weapon_id,
+			true
 			)
 
 func spawn_server_player(client_id: int, spawn_tform: Transform3D, team: int) -> void:
@@ -164,7 +186,7 @@ func spawn_server_player(client_id: int, spawn_tform: Transform3D, team: int) ->
 	client_data[client_id].team = team
 	
 @rpc("authority", "call_remote", "reliable")
-func s_spawn_player(client_id: int, spawn_tfrom: Transform3D, team: int, player_name: String, weapon_id: int) -> void:
+func s_spawn_player(client_id: int, spawn_tfrom: Transform3D, team: int, player_name: String, weapon_id: int, auto_freeze: bool) -> void:
 	pass
 	
 @rpc("authority", "call_remote", "reliable")
@@ -173,7 +195,15 @@ func s_start_match() -> void:
 	
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func c_send_player_state(player_state: Dictionary) -> void:
-	current_world_state.ps[multiplayer.get_remote_sender_id()] = player_state
+	var client_id := multiplayer.get_remote_sender_id()
+	
+	if not server_players.has(client_id):
+		return
+		
+	current_world_state.ps[client_id] = player_state
+	server_players.get(client_id).real.position = player_state.pos
+	server_players.get(client_id).real.rotation.y = player_state.rot_y
+	server_players.get(client_id).real.set_anim(player_state.anim)
 
 @rpc("authority", "call_remote", "reliable")
 func s_start_weapon_selection() -> void:
@@ -186,13 +216,19 @@ func c_weapon_selected(weapon_id: int) -> void:
 	if not client_id in client_data.keys() or client_id in ready_clients:
 		return
 	
-	ready_clients.append(client_id)
 	client_data[client_id].weapon_id = weapon_id
+	
+	if status == GAME:
+		respawn_player(client_id)
+		return
+	
+	ready_clients.append(client_id)
 	
 	for maybe_ready_client in client_data.keys():
 		if not maybe_ready_client in ready_clients:
 			return
-	
+			
+	status = GAME
 	spawn_players()
 	
 	await get_tree().create_timer(1).timeout
@@ -202,6 +238,31 @@ func c_weapon_selected(weapon_id: int) -> void:
 	
 	ready_clients.clear()
 	set_physics_process(true)
+
+func respawn_player(respawn_client_id: int) -> void:
+	var team: int = client_data.get(respawn_client_id).team
+	var team_prefix := "Blue" if team == 0 else "Red"
+	var possible_spawn_points: Array[Node3D] = []
+	
+	for spawn_point in spawn_points:
+		if spawn_point.name.begins_with(team_prefix):
+			possible_spawn_points.append(spawn_point)
+	
+	var spawn_point: Node3D = possible_spawn_points.pick_random()
+	
+	spawn_server_player(respawn_client_id, spawn_point.transform, team)
+	
+	for client_id in client_data.keys():
+			s_spawn_player.rpc_id(
+			client_id,
+			respawn_client_id,
+			spawn_point.transform,
+			team,
+			client_data.get(respawn_client_id).display_name,
+			client_data.get(respawn_client_id).weapon_id,
+			false
+			)
+	
 
 @rpc("any_peer", "call_remote", "unreliable")
 func c_shot_fired(time_stamp: int, player_data: Dictionary) -> void:
@@ -278,8 +339,15 @@ func calculate_shot_results(shooter_id: int, time_stamp: int, player_data: Dicti
 			#	continue
 			
 			var hurt_server_player: PlayerServerReal = server_players.get(hurt_client_id).real
-			var health_change = -weapon_data.damage * result.collider.damage_multiplier
-			hurt_server_player.change_health(health_change)
+			var base_damage = - weapon_data.damage * result.collider.damage_multiplier
+			var damage_falloff_start := 10
+			var damage_falloff_end := 20
+			var damage_max_falloff := 0.4
+			var distance = ray_params.from.distance_to(result.position)
+			var damage_falloff_multiplier = remap(distance, damage_falloff_start, damage_falloff_end, 1, damage_max_falloff)
+			damage_falloff_multiplier = clampf(damage_falloff_multiplier, damage_max_falloff, 1)
+			var damage_dealt = base_damage * damage_falloff_multiplier
+			hurt_server_player.change_health(damage_dealt, shooter_id)
 			
 			print(result.collider.player.name + " got hit")
 			spawn_bullet_hit_fx(result.position - global_position, result.normal, 1)
@@ -303,4 +371,55 @@ func update_health(target_client_id: int, current_health: int, max_health: int, 
 		s_update_health.rpc_id(client_id, target_client_id, current_health, max_health, changed_amount)
 @rpc("authority", "call_remote", "unreliable_ordered")
 func s_update_health(target_client_id: int, current_health: int, max_health: int, changed_amount: int) -> void:
+	pass
+
+func pickup_cooldown_started(pickup_name: String) -> void:
+	for client_id in client_data.keys():
+		s_pickup_cooldown_started.rpc_id(client_id, pickup_name)
+@rpc("authority", "call_remote", "reliable")
+func s_pickup_cooldown_started(pickup_name: String) -> void:
+	pass
+	
+func pickup_cooldown_ended(pickup_name: String) -> void:
+	for client_id in client_data.keys():
+		s_pickup_cooldown_ended.rpc_id(client_id, pickup_name)
+@rpc("authority", "call_remote", "reliable")
+func s_pickup_cooldown_ended(pickup_name: String) -> void:
+	pass
+
+func player_died(dead_player_id: int, killer_id: int) -> void:
+	server_players.get(dead_player_id).real.queue_free()
+	server_players.get(dead_player_id).dummy.queue_free()
+	server_players.erase(dead_player_id)
+	current_world_state.ps.erase(dead_player_id)
+	
+	client_data.get(dead_player_id).deaths += 1
+	if dead_player_id != killer_id:
+		client_data.get(killer_id).kills += 1
+	
+	for client_id in client_data.keys():
+		s_player_died.rpc_id(client_id, dead_player_id)
+		
+	update_game_scores()
+	
+	await get_tree().create_timer(DEATH_COOLDOWN_LENGTH).timeout
+	s_start_weapon_selection.rpc_id(dead_player_id)
+@rpc("authority", "call_remote", "reliable")
+func s_player_died(dead_player_id: int) -> void:
+	pass
+
+func update_game_scores() -> void:
+	var blue_team_kills := 0
+	var red_team_kills := 0
+	
+	for data in client_data.values():
+		if data.team == 0:
+			red_team_kills += data.deaths
+		else:
+			blue_team_kills += data.deaths
+	
+	for client_id in client_data.keys():
+		s_update_game_scores.rpc_id(client_id, blue_team_kills, red_team_kills)
+@rpc("authority", "call_remote", "reliable")
+func s_update_game_scores(blue_score: int, red_score: int) -> void:
 	pass
