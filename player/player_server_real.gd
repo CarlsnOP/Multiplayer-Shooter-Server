@@ -7,6 +7,7 @@ const MAX_HEALTH := 100
 
 var current_health := MAX_HEALTH
 var lobby: Lobby
+var grenades_left := 2
 
 
 @onready var animation_player: AnimationPlayer = %AnimationPlayer
@@ -28,3 +29,7 @@ func change_health(amount: int, maybe_damage_dealer: int = 0) -> void:
 
 func die(killer_id: int) -> void:
 	lobby.player_died(name.to_int(), killer_id)
+
+func update_grenades_left(new_amount: int) -> void:
+	grenades_left = new_amount
+	lobby.update_grenades_left(name.to_int(), grenades_left)

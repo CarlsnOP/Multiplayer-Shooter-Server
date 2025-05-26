@@ -45,10 +45,8 @@ func remove_client_from_lobby(client_id: int) -> void:
 		lobby_clients_updated(maybe_lobby)
 		
 		if maybe_lobby.client_data.keys().is_empty():
-			lobbies.erase(maybe_lobby)
-			maybe_lobby.queue_free()
-			update_lobby_spots()
-	
+			delete_lobby(maybe_lobby)
+			
 	print("Client %d disconnected from lobby" % client_id)
 
 func update_lobby_spots() -> void:
@@ -152,3 +150,9 @@ func c_get_server_clock_time(client_clock_time: int) -> void:
 @rpc("authority", "call_remote", "unreliable_ordered")
 func s_return_server_clock_time(server_clock_time: int, old_client_clock_time: int) -> void:
 	pass
+
+func delete_lobby(lobby: Lobby) -> void:
+	lobbies.erase(lobby)
+	lobby.queue_free()
+	update_lobby_spots()
+	

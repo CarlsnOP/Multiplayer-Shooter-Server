@@ -1,0 +1,32 @@
+[gd_scene load_steps=3 format=3 uid="uid://b8jm7821o7bfr"]
+
+[ext_resource type="Script" uid="uid://qnqyahmjegm5" path="res://player/grenade/grenade.gd" id="1_o8rsb"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_ne656"]
+radius = 0.16
+
+[node name="Grenade" type="RigidBody3D"]
+collision_layer = 0
+collision_mask = 3
+continuous_cd = true
+linear_damp = 0.1
+angular_damp = 5.0
+script = ExtResource("1_o8rsb")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_ne656")
+
+[node name="SelfDestructTimer" type="Timer" parent="."]
+unique_name_in_owner = true
+one_shot = true
+
+[node name="ExplosionDamageArea" type="Area3D" parent="."]
+unique_name_in_owner = true
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ExplosionDamageArea"]
+unique_name_in_owner = true
+
+[connection signal="timeout" from="SelfDestructTimer" to="." method="_on_self_destruct_timer_timeout"]

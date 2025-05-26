@@ -3,12 +3,12 @@ class_name Pickup
 
 
 enum PickupTypes {
-	Health,
-	Grenade
+	HealthPickup,
+	GrenadePickup
 }
 
 
-@export var pickup_type := PickupTypes.Health
+@export var pickup_type := PickupTypes.HealthPickup
 @export var cooldown_time := 10.0
 
 
@@ -27,13 +27,20 @@ func _on_area_3d_body_entered(player: PlayerServerReal) -> void:
 		return
 	
 	match pickup_type:
-		PickupTypes.Health:
+		PickupTypes.HealthPickup:
 			if player.current_health < player.MAX_HEALTH:
 				player.change_health(75)
-				is_picked = true
-				cooldown_timer.start()
-				lobby.pickup_cooldown_started(name)
-			
+				
+		PickupTypes.GrenadePickup:
+			player.update_grenades_left(player.grenades_left + 1)
+	
+	picked_up()
+
+func picked_up() -> void:
+	is_picked = true
+	cooldown_timer.start()
+	lobby.pickup_cooldown_started(name)
+
 func _on_cooldown_timer_timeout() -> void:
 	is_picked = false
 	lobby.pickup_cooldown_ended(name)
