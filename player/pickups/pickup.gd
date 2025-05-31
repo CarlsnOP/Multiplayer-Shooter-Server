@@ -34,12 +34,13 @@ func _on_area_3d_body_entered(player: PlayerServerReal) -> void:
 		PickupTypes.GrenadePickup:
 			player.update_grenades_left(player.grenades_left + 1)
 	
-	picked_up()
+	picked_up(player)
 
-func picked_up() -> void:
+func picked_up(player: PlayerServerReal) -> void:
 	is_picked = true
 	cooldown_timer.start()
 	lobby.pickup_cooldown_started(name)
+	lobby.play_pickup_fx(player.name.to_int(), pickup_type)
 
 func _on_cooldown_timer_timeout() -> void:
 	is_picked = false

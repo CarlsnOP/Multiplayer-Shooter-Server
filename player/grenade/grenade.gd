@@ -39,7 +39,18 @@ func _ready() -> void:
 	remove_collision_exception_with(thrower)
 
 func explode() -> void:
+	if not is_instance_valid(thrower):
+		return
+	
+	var thrower_id := thrower.name.to_int()
+	
 	for player in explosion_damage_area.get_overlapping_bodies():
+		#Uncomment below to disable friendly fire
+		#var hurt_player_id = player.name.to_int()
+		#
+		#if lobby.client_data.get(thrower_id).team == lobby.client_data.get(hurt_player_id).team and thrower_id != hurt_player_id:
+			#continue
+		
 		var damage := max_damage - remap(
 			global_position.distance_to(player.global_position + Vector3.UP * 0.8),
 			0,
